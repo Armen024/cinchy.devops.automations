@@ -1,0 +1,252 @@
+﻿{
+  // The *_repo_path properties must be populated with the local file system path to the 3 repositories - cinchy.terraform, cinchy.argocd and cinchy.kubernetes
+  // The cinchy.devops.automations command line utility will update the contents of those local directories based on the outlined configuration in this file.
+  // These updated configurations can then be committed to their respective Git repositories
+  "terraform_repo_path": "D:\\cinchy\\cinchy.terraform",
+  "argocd_repo_path": "D:\\cinchy\\cinchy.argocd",
+  "kubernetes_repo_path": "D:\\cinchy\\cinchy.kubernetes",
+  // Each key under cluster_configs represents a single cluster's configuration. Creating a second, third, etc. cluster involves creating additional objects within cluster_configs
+  "cluster_configs": {
+    // The name of the object below (i.e. cinchy-nonprod) will become the directory name for the cluster in each of the cinchy.terraform, cinchy.argocd, and cinchy.kubernetes repos
+    "cinchy-nonprod": {
+      "terraform_config": {
+        "cloud_provider": "aws",
+        // This is the region all resources will be created in
+        "aws_region": "<region-name>",
+        "terraform_backend": {
+          // This is the name of the S3 bucket that will be used for storing the terraform state (defined in the AWS pre-requisites)
+          "terraform_backend_s3_bucket": "<organization>-cinchy-terraform-state",
+          // The desired path to the terraform state file in the bucket, typically follows the convention of <cluster name>/terraform.tfstate to allow for multiple clusters to share the same S3 bucket
+          "terraform_backend_s3_key": "cinchy-nonprod/terraform.tfstate",
+          "terraform_backend_s3_encrypt": "true"
+        },
+        "object_storage": {
+          // Cinchy requires a new S3 bucket for it's file storage. Select a unique name, the template convention follows <organization>-<cluster name>
+          "cinchy_s3_bucket": "<organization>-cinchy-nonprod",
+          // During the S3 bucket creation, a tag named "Environment" is added to the resource and populated with the following value
+          "cinchy_s3_environment_tag": "cinchy-nonprod",
+          "connections_storage_type": "S3",
+          // IAM user credentials (access key and secret) for access to this bucket. Ensure that the usre has the necessary privileges defined in IAM
+          "connections_s3_access_key": "",
+          "connections_s3_secret_access_key": "",
+          // Optional - only set this value if you are using a third party S3 compatible service
+          "connections_s3_service_url": "",
+          "web": {
+            "web_storage_type": "S3",
+            // Cinchy requires a new S3 bucket for it's file storage. Select a unique name, the template convention follows <organization>-<cluster name>
+            "cinchy_web_s3_bucket": "",
+            // IAM user credentials (access key and secret) for access to this bucket. Ensure that the usre has the necessary privileges defined in IAM
+            "web_s3_access_key": "",
+            "web_s3_secret_access_key": "",
+            // Optional - only set this value if you are using a third party S3 compatible service
+            "web_s3_service_url": ""
+          }
+        },
+        "network": {
+          // When planning on leveraging an existing vpc, populate the below settings with the identifier of a vpc and the 3 subnets to use (one per AZ)
+          // Delete this section if you are not planning on leveraging an existing vpc
+          "existing_vpc": {
+            "vpc_id": "",
+            "subnet_ids": [ "subnet-01", "subnet-02", "subnet-03" ]
+          },
+          // When planning on creating a new vpc, populate the below settings with the desired name, availability zones, CIDR ranges, etc.
+          // Delete this section if you are not planning on creating a new vpc
+          "new_vpc": {
+            "name": "cinchy-nonprod-vpc",
+            // The CIDR range should allow sufficient IPs for all running pods (across all instances) and provide sufficient capacity for auto scaling
+            "cidr": "10.10.0.0/21",
+            // 3 AZs are required and 3 subnets (one per AZ) to ensure that each of the auto scaling groups is in it's own subnet
+            // To retrieve the list of availability zones within the region, use the following AWS CLI command
+            // aws ec2 describe-availability-zones --region <region-name>
+            "azs": [ "ZoneName-1", "ZoneName-2", "ZoneName-3" ],
+            // Each subnet must allow sufficient IPs for all running pods across all nodes in a single AZ
+            "private_subnets": [ "10.10.0.0/24", "10.10.1.0/24", "10.10.2.0/24" ],
+            "public_subnets": [ "10.10.3.0/24", "10.10.4.0/24", "10.10.5.0/24" ],
+            // During the VPC creation, a tag named "Environment" is added to the resource and populated with the following value
+            "vpc_environment_tag": "cinchy-nonprod"
+          }
+        },
+        // A new EC2 key pair with the below name is created for SSH connectivity to the nodes belonging to the EKS cluster
+        "ec2_ssh_key_pair": {
+          "key_name": "cinchy-nonprod"
+        },
+        "eks": {
+          // The EKS cluster version is defined below.
+          "cluster_version": "1.22",
+          // Set the below property to control the type/size of EC2 instance that is created. Instances are recommended to be a minimum of 8 cores, 32GB ram (note: arm based processors are not supported)
+          "instance_types": [ "m5.2xlarge" ],
+          // Disk size for the nodes is specified in GB, the recommended value is 100
+          "disk_size": 100,
+          // 3 Auto Scaling Groups (one per AZ/Subnet) are created for the EC2 nodes connected to the cluster. Each auto scaling group has a minimum and maximum number of nodes which are configured below.
+          // The cluster autoscaler determines what the desired node count is and overrides the below desired_size property at runtime. The desired_size must not be less than the minimum in the configuration.
+          "min_size": 1,
+          "max_size": 3,
+          "desired_size": 1
+        },
+        // A single aurora database cluster is stood up by terraform for the cluster. Each running instance of Cinchy requires a dedicated database, but the cluster may run multiple DBs.
+        // The terraform configuration only allows for the creation of a single database, additional databases for additional instances must be created by connecting to the cluster directly.
+        "aurora": {
+          // The name of the aurora cluster is defined by the following property
+          "database_instance_name": "cinchy-nonprod",
+          // The following property controls the name of the first database that is created within the Aurora cluster. Database names can not contain hyphens, only letters, numbers, and _ are allowed
+          "database_name": "development",
+          "engine_version": "14.3",
+          // Specify the size of the Aurora writer instance. The deployment is configured to only create one instance by default (i.e. no read replicas are created).
+          "instance_class": "db.r6g.large",
+          "publicly_accessible": "false",
+          // To enable access to the Aurora cluster from the EKS cluster, a CIDR range must be provided to allow traffic originating from within that range. This should be set to the VPC's CIDR range to allow traffic from within the VPC
+          "allowed_cidr_blocks": [ "10.10.0.0/21" ],
+          // During the VPC creation, a tag named "Environment" is added to the resource and populated with the following value
+          "aurora_environment_tag": "cinchy-nonprod"
+        },
+        "managed_opensearch": {
+          // The Opensearch cluster name. Underscore is not allowed
+          "domain_name": "cinchy-nonprod",
+          //The Opensearch cluster version is defined as below.
+          "opensearch_version": "OpenSearch_1.3",
+          // Specify the type of the Opensearch instance 
+          "opensearch_instance_type": "m6g.large.elasticsearch",
+          // Number of instances in the cluster.
+          "instance_count": 3,
+          //Configuration for Opensearch zone awareness.
+          "zone_awareness_enabled": "true",
+          // Number of availability zones used.
+          "availability_zone_count": 3,
+          // As part of the pre-requisites for AWS, the SSL certificate is imported (or requested) into the AWS Certificate Manager. The ARN of the certificate must be specified below.
+          "custom_endpoint_certificate_arn": "arn:aws:acm:us-east-1:1234567890:certificate/7702sa1c-e16e-4e4b-87d9-288b5ad59dsd",
+          // Opensearch Dashboard is used for log analysis. The following property controls the host name at which Opensearch Dashboard is made available. The default path for Opensearch Dashboard is https://<host name>/_dashboards
+          // The custom endpoint would be https://<host name>
+          "custom_endpoint": "",
+          // Disk size for the nodes is specified in GB.
+          "opensearch_volume_size": "1000",
+          // Set password for internal user and the default username is cinchy
+          "master_user_password": "SometHing$1",
+          // During the Opensearch creation, a tag named "Environment" is added to the resource and populated with the following value
+          "opensearch_environment_tag": "",
+          // Enable SAML using below parameter.
+          "opensearch_saml_enabled": "true",
+          // TO enable SAML need to generate metadata.xml for SSO through your SSO provider. In this example we are going to use Azure Active Directory.
+          // Login to Azure portal and select Azure Active Directory service >> Enterprise applications >> New application >> Create your own application >> Give some name to your application and choose "Integrate any other application you don't find in the gallery (Non-gallery)" option and hit create.
+          //Click on single sign on >>  SAML >> update Basic SAML Configuration as below and domain URL can be changed based on availability and choice 
+          //Identifier (Entity ID)  = https://<host name>
+          //Reply URL (Assertion Consumer Service URL) =   https://<host name>/_dashboards/_opendistro/_security/saml/acs
+          // On the same page you would be able to see "Federation Metadata XML" file which you need to download.
+          // Also add create appropriate User groups and permissions
+          // Add appropriate Attributes & Claims in application to use below saml_role_key. For below group claim user.groups [ApplicationGroup] added.
+          "saml_roles_key": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
+          // Add AAD group to Applcaition and grab the Active Directory Users group ID and add as below to set permissions or Login to Opensearch using master_user_name and assigne appropriate roles to users.
+          "master_backend_role": "f087bf8b-d6e9-48fe-b22a-7772ef811146",
+          // Add valid email address which will act as administrator
+          "master_user_name": "user.@example.com",
+          // Copy "Azure AD Identifier" from  Single Sign-On with SAML section..
+          "idp_entity_id":"https://sts.windows.net/f3d450ce-6b1e-41fb-ac199908/",
+          // Copy the downloaded metadata.xml file to cinchy.terraform\aws\eks_cluster_template and update the file name below.
+          "metadata_content": "metadata.xml"
+        }
+      },
+      "argocd_config": {
+        // ArgoCD is a GitOps tool that requires connectivity to the cinchy.kubernetes and cinchy.argocd repos to source configurations and keep the environment in sync with the manifests stored in Git
+        // The below value should be populated with the URL to the cinchy.kubernetes git repo, e.g. https://cinchy.visualstudio.com/DevOps/_git/cinchy.kubernetes
+        "cinchy_kubernetes_repo_url": "",
+        // ArgoCD sources manifests from a specified branch within the Git repo, the following property should contain the target branch name for the cinchy.kubernetes repo
+        "cinchy_kubernetes_repo_revision": "main",
+        // The below value should be populated with the URL to the cinchy.argocd git repo, e.g. https://cinchy.visualstudio.com/DevOps/_git/cinchy.argocd
+        "cinchy_argocd_repo_url": "",
+        // ArgoCD sources manifests from a specified branch within the Git repo, the following property should contain the target branch name for the cinchy.argocd repo
+        "cinchy_argocd_repo_revision": "main",
+        "git_credentials": {
+          // Credentials to the Git repo are made available to ArgoCD via a Kubernetes secret. A single secret is used by ArgoCD for both the cinchy.kubernetes and cinchy.argocd repos.
+          // To ensure that the credentials are referenced correctly, a base URL that is common to both the cinchy.kubernetes & cinchy.argocd repo URLs must be defined.
+          // As an example, a base_repo_url of https://cinchy.visualstudio.com/DevOps/_git ensures that the specified credentials are picked up for both https://cinchy.visualstudio.com/DevOps/_git/cinchy.kubernetes
+          // and https://cinchy.visualstudio.com/DevOps/_git/cinchy.argocd
+          "base_repo_url": "",
+          // The username and password for Git are specified below
+          "git_username": "",
+          "git_password": ""
+        }
+      },
+      "cluster_component_config": {
+        "istio": {
+          // Istio is used to create an ingress gateway to route traffic to the running applications in the cluster. The host name specified must be consistent with the host name defined in the SSL certificate.
+          // For example if a wildcard certificate is used, this would be *.<mydomain>.com
+          "istio_ingress_gateway_host": "",
+          // As part of the pre-requisites for AWS, the SSL certificate is imported (or requested) into the AWS Certificate Manager. The ARN of the certificate must be specified below.
+          // The arn can be found using the following CLI command
+          // aws acm list-certificates
+          "aws_acm_arn": "",
+          // The network load balancer created by Istio for the ingress traffic can either be internal or internet-facing. Setting the following value to false creates an internet facing load balancer (use true for internal)
+          "load-balancer-internal": "false",
+          // Grafana is used for visualizing metrics. The following property controls the host name at which Grafana is made available. The default path for Grafana is https://<host name>/grafana
+          // In a typical deployment this should be set to the same host name as the cluster (e.g. cinchy.<mydomain>.com). Wildcards should not be used in this property.
+          "grafana_host_name": "",
+          // Opensearch Dashboard is used for log analysis. The following property controls the host name at which Opensearch Dashboard is made available. The default path for Opensearch Dashboard is https://<host name>/dashboard
+          // In a typical deployment this should be set to the same host name as the cluster (e.g. cinchy.<mydomain>.com). Wildcards should not be used in this property.
+          "opensearch_host_name": "",
+          // ArgoCD can be exposed via a subdomain or port forwarded using kubectl on demand. The following property controls the host name at which ArgoCD is made available for the former option.
+          // The default path for ArgoCD is https://<host name>
+          // In a typical deployment this should be set to a different host name from the cluster (e.g. argocd-cinchy-nonprod.<mydomain>.com). Wildcards should not be used in this property.
+          // Since there is only one ingress gateway and a single SSL cert specified, this option is only available when using a wildcard SSL certificate
+          "argocd_host_name": ""
+        },
+        "ecr_repo_secrets": {
+          // This value only needs to be changed if Cinchy's ECR is not going to be used to pull images at runtime. The value is a Base64 encoded version of the AWS region in which the ECR is created.
+          "base64_encoded_aws_region": "Y2EtY2VudHJhbC0x",
+          // Cinchy platform component images are held in an AWS Elastic Container Registry. A set of IAM credentials can be requested from support@cinchy.com.
+          // The ID and Secret Access Key must be base 64 encoded and the below properties updated with the respective values. A Kubernetes secret is created using these inputs.
+          "base64_encoded_aws_id": "",
+          "base64_encoded_aws_secret_access_key": ""
+        },
+        // Set this to true if AWS Secrets Manager is being used
+        "enable_aws_secret_manager": "false"
+      },
+      "image_repo_uris": {
+        // The images made available by Cinchy use the below repository url's, these do not need to change unless you are leveraging your own ECR or equivalent alternative
+        "connections_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.webapi",
+        "event_listener_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.event-listener",
+        "idp_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.idp",
+        "maintenance_cli_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.maintenance.cli",
+        "meta_forms_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.forms",
+        "web_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.web",
+        "worker_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.worker"
+      },
+      // Each key under cinchy_instance_configs represents a single Cinchy instance's configuration. Creating a second, third, etc. instance involves creating additional objects within cinchy_instance_configs
+      "cinchy_instance_configs": {
+        // The name of the object below (i.e. development) will become the directory name for the instance in each of the cinchy.argocd and cinchy.kubernetes repos
+        "development": {
+          // All pods belonging to an instance are created within the namespace specified below
+          "namespace": "development",
+          "protocol": "https",
+          // The following property sets the host name at which the cinchy instance is exposed, e.g. cinchy-nonprod.<mydomain.com>
+          "host_name": "",
+          // If the instance is being deployed at an application path (e.g. https://<host name>/<application path>) as the base URL, the application path can be specified below, e.g. /development
+          "application_path": "",
+          "use_https_flag": "true",
+          "dbtype": "PostgreSQL",
+          // The connection string for Aurora requires the password and host name to be updated below. These values will only be known once the terraform script has been applied and the resources are created.
+          // To retrieve the password and hostname run the following two commands
+          // terraform output -raw aurora_rds_password
+          // terraform output -raw aurora_cluster_endpoint
+          "database_connection_string": "User ID=cinchy;Password=<password>;Host=<db_hostname>;Port=5432;Database=development;Timeout=300;Keepalive=300;",
+          // The component image tags are specified below to define which versions to deploy
+          "connections_image_tag": "v5.1.0",
+          "event_listener_image_tag": "v5.1.0",
+          "idp_image_tag": "v5.1.0",
+          "maintenance_cli_image_tag": "v5.1.0",
+          "meta_forms_image_tag": "v5.1.0",
+          "web_image_tag": "v5.1.0",
+          "worker_image_tag": "v5.1.0",
+          // If using the AWS Secrets Manager, the ARNs for the secrets that have been created
+          "aws_secrets_manager_arn_list": [
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:connections-secret-appsettings-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:event-listener-secret-appsettings-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:idp-secret-appsettings-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:maintenance-cli-secret-appsettings-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:forms-secret-config-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:web-secret-appsettings-development",
+            "arn:aws:secretsmanager:ca-central-1:658484148438:secret:worker-secret-appsettings-development"
+          ]
+        }
+      }
+    }
+  }
+}

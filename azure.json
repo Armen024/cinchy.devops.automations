@@ -1,0 +1,186 @@
+﻿{
+  // The *_repo_path properties must be populated with the local file system path to the 3 repositories - cinchy.terraform, cinchy.argocd and cinchy.kubernetes
+  // The cinchy.devops.automations command line utility will update the contents of those local directories based on the outlined configuration in this file.
+  // These updated configurations can then be committed to their respective Git repositories
+  "terraform_repo_path": "D:\\cinchy\\cinchy.terraform",
+  "argocd_repo_path": "D:\\cinchy\\cinchy.argocd",
+  "kubernetes_repo_path": "D:\\cinchy\\cinchy.kubernetes",
+  // Each key under cluster_configs represents a single cluster's configuration. Creating a second, third, etc. cluster involves creating additional objects within cluster_configs
+  "cluster_configs": {
+    // The name of the object below (i.e. nonprod) will become the directory name for the cluster in each of the cinchy.terraform, cinchy.argocd, and cinchy.kubernetes repos
+    // It is also the name of the AKS cluster and must start with a lowercase letter and have max length of 12 characters
+    "nonprod": {
+      "terraform_config": {
+        "cloud_provider": "azure",
+        // Populate the partner_id with the GUID provided to you by support@cinchy.com (you should receive this at the same time as the ECR credentials)
+        "partner_id": "",
+        // This is the region all resources will be created in
+        "location": "<region-name>",
+        // This is the resource group that all resources will be created in, the template convention follows cinchy<cluster name>
+        "deployment_resource_group": "cinchynonprod",
+        "terraform_backend": {
+          // These are the details for the Azure Blob Storage container that will be used for storing the terraform state (defined in the Azure pre-requisites)
+          "terraform_backend_resource_group_name": "cinchyterraform",
+          // Must be 24 characters or less
+          "terraform_backend_storage_account_name": "cinchyterraform",
+          "terraform_backend_storage_container_name": "cinchyterraformstate",
+          // The desired path to the terraform state file in the storage container, typically follows the convention of <cluster name>/terraform.tfstate to allow for multiple clusters to share the same storage container
+          "terraform_backend_storage_key": "nonprod/terraform.tfstate"
+        },
+        "object_storage": {
+          // Cinchy requires a new Azure Blob Storage container for it's file storage. Select a unique name, the template convention follows <organization>cinchy<cluster name>
+          // Storage Account Names can only consist of lowercase letters and numbers, and must be between 3 and 24 characters long
+          "storage_account_name": "<organization>cinchynonprod",
+          // Two storage containers are created, one for the Connections component and one for the Platform. The default naming convention is <cluster name>-<component>
+          "connections_storage_container_name": "nonprod-connections",
+          "platform_storage_container_name": "nonprod-platform",
+          "connections_storage_type": "AzureBlobStorage",
+          // The connection string to the Azure Blob Storage account, it can be retrieved by executing the following command after the terraform apply has completed
+          // In the below command the <storage_account_name> and <deployment_resource_group> must be replaced with the values for those properties within this file
+          // az storage account show-connection-string --name <storage_account_name> --resource-group <deployment_resource_group>
+          "azure_blob_storage_conn_str": ""
+        },
+        "network": {
+          // When planning on leveraging an existing vnet, populate the below settings with the name of the vnet and the subnet to use
+          // Delete this section if you are not planning on leveraging an existing vnet
+          "existing_vnet": {
+            "virtual_network_name": "nonprodvnet",
+            "subnet_name": "aks-subnet1"
+          },
+          // When planning on creating a new vnet, populate the below settings with the desired name, CIDR, and subnet details
+          // Delete this section if you are not planning on creating a new vnet
+          "new_vnet": {
+            "virtual_network_name": "nonprodvnet",
+            // The CIDR range should allow sufficient IPs for all running pods (across all instances) and provide sufficient capacity for auto scaling
+            "address_space": "20.10.0.0/21",
+            "subnet_name": "nonprodakssubnet1",
+            // The subnet must allow sufficient IPs for all running pods across all nodes across AZs
+            "subnet_prefix": "20.10.0.0/22"
+          }
+        },
+        // Cluster definition
+        "aks": {
+          "kubernetes_version": "1.22.11",
+          "orchestrator_version": "1.22.11",
+          // Should not overlap with network.[existing|new_vnet].subnet_prefix, but fall within network.[new_vnet].address_space
+          // The network range used by the Kubernetes service
+          "net_profile_service_cidr": "20.10.4.0/22",
+          // IP address within the Kubernetes service address range that will be used by cluster service discovery (kube-dns)
+          // Note that *.*.*.1 is a Kubernetes reserved address
+          "net_profile_dns_service_ip": "20.10.4.2",
+          // The name of the Private DNS Zone. Must be a valid domain name.
+          "private_dns_name": "privatelink.<region-name>.azmk8s.io",
+          "nodes": {
+            // Disk size for the nodes is specified in GB, the recommended value is 100
+            "os_disk_size_gb": 100,
+            "vm_size": "Standard_D8s_v3",
+            // 3 node pools (one per AZ) are created for the VMs connected to the cluster. Each node pool has a minimum and maximum number of nodes which are configured below.
+            "min_count": 1,
+            "max_count": 3
+          }
+        },
+        // A single Azure SQL Database instance is stood up by terraform for the cluster. Each running instance of Cinchy requires a dedicated database.
+        // The terraform configuration only allows for the creation of a single database, additional databases for additional instances must be created separately.
+        "mssql": {
+          // The name of the Azure SQL Database server is defined by the following property
+          "sqlserver_name": "nonprodsql",
+          // The following property controls the name of the first database that is created within the Azure SQL Server.
+          "database_name": "development",
+          // The database edition and service objective name drive the database type (e.g. Hyperscale) and compute associated with the resource
+          // The following command can be used to list the database edition values (replace <location> with the Azure region)
+          // az sql db list-editions -l <location> -o table
+          "sql_database_edition": "Hyperscale",
+          "sqldb_service_objective_name": "HS_Gen5_4",
+          // To enable access to the Azure SQL Database Server from the AKS cluster, an IP range must be provided to allow traffic originating from within that range. This should be set to the VNet's IP range to allow traffic from within the VNet
+          "firewall_rules": "[ {\n name = \"access-to-azure\"\n start_ip_address = \"0.0.0.0\"\n end_ip_address = \"0.0.0.0\"\n } ]\n"
+        }
+      },
+      "argocd_config": {
+        // ArgoCD is a GitOps tool that requires connectivity to the cinchy.kubernetes and cinchy.argocd repos to source configurations and keep the environment in sync with the manifests stored in Git
+        // The below value should be populated with the URL to the cinchy.kubernetes git repo, e.g. https://cinchy.visualstudio.com/DevOps/_git/cinchy.kubernetes
+        "cinchy_kubernetes_repo_url": "",
+        // ArgoCD sources manifests from a specified branch within the Git repo, the following property should contain the target branch name for the cinchy.kubernetes repo
+        "cinchy_kubernetes_repo_revision": "main",
+        // The below value should be populated with the URL to the cinchy.argocd git repo, e.g. https://cinchy.visualstudio.com/DevOps/_git/cinchy.argocd
+        "cinchy_argocd_repo_url": "",
+        // ArgoCD sources manifests from a specified branch within the Git repo, the following property should contain the target branch name for the cinchy.argocd repo
+        "cinchy_argocd_repo_revision": "main",
+        "git_credentials": {
+          // Credentials to the Git repo are made available to ArgoCD via a Kubernetes secret. A single secret is used by ArgoCD for both the cinchy.kubernetes and cinchy.argocd repos.
+          // To ensure that the credentials are referenced correctly, a base URL that is common to both the cinchy.kubernetes & cinchy.argocd repo URLs must be defined.
+          // As an example, a base_repo_url of https://cinchy.visualstudio.com/DevOps/_git ensures that the specified credentials are picked up for both https://cinchy.visualstudio.com/DevOps/_git/cinchy.kubernetes
+          // and https://cinchy.visualstudio.com/DevOps/_git/cinchy.argocd
+          "base_repo_url": "",
+          // The username and password for Git are specified below
+          "git_username": "",
+          "git_password": ""
+        }
+      },
+      "cluster_component_config": {
+        "istio": {
+          // Istio is used to create an ingress gateway to route traffic to the running applications in the cluster. The host name specified must be consistent with the host name defined in the SSL certificate.
+          // For example if a wildcard certificate is used, this would be *.<mydomain>.com
+          "istio_ingress_gateway_host": "",
+          // Istio requires a kubernetes secret containing the certificate and private key. These values must be base64 encoded and specified below.
+          "ssl_tls_crt": "",
+          "ssl_tls_key": "",
+          // The load balancer created by Istio for the ingress traffic can either be internal or internet-facing. Setting the following value to false creates an internet facing load balancer (use true for internal)
+          "load-balancer-internal": "false",
+          // Grafana is used for visualizing metrics. The following property controls the host name at which Grafana is made available. The default path for Grafana is https://<host name>/grafana
+          // In a typical deployment this should be set to the same host name as the cluster (e.g. cinchy.<mydomain>.com). Wildcards should not be used in this property.
+          "grafana_host_name": "",
+          // Opensearch Dashboard is used for log analysis. The following property controls the host name at which Opensearch Dashboard is made available. The default path for Opensearch Dashboard is https://<host name>/dashboard
+          // In a typical deployment this should be set to the same host name as the cluster (e.g. cinchy.<mydomain>.com). Wildcards should not be used in this property.
+          "opensearch_host_name": "",
+          // ArgoCD can be exposed via a subdomain or port forwarded using kubectl on demand. The following property controls the host name at which ArgoCD is made available for the former option.
+          // The default path for ArgoCD is https://<host name>
+          // In a typical deployment this should be set to a different host name from the cluster (e.g. argocd-cinchy-nonprod.<mydomain>.com). Wildcards should not be used in this property.
+          // Since there is only one ingress gateway and a single SSL cert specified, this option is only available when using a wildcard SSL certificate
+          "argocd_host_name": ""
+        },
+        "ecr_repo_secrets": {
+          "base64_encoded_aws_region": "Y2EtY2VudHJhbC0x",
+          // Cinchy platform component images are held in an AWS Elastic Container Registry. A set of IAM credentials can be requested from support@cinchy.com.
+          // The ID and Secret Access Key must be base 64 encoded and the below properties updated with the respective values. A Kubernetes secret is created using these inputs.
+          "base64_encoded_aws_id": "",
+          "base64_encoded_aws_secret_access_key": ""
+        }
+      },
+      "image_repo_uris": {
+        // The images made available by Cinchy use the below repository url's, these do not need to change unless you are leveraging your own ECR or equivalent alternative
+        "connections_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.webapi",
+        "event_listener_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.event-listener",
+        "idp_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.idp",
+        "maintenance_cli_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.maintenance.cli",
+        "meta_forms_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.forms",
+        "web_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.web",
+        "worker_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.worker"
+      },
+      // Each key under cinchy_instance_configs represents a single Cinchy instance's configuration. Creating a second, third, etc. instance involves creating additional objects within cinchy_instance_configs
+      "cinchy_instance_configs": {
+        // The name of the object below (i.e. development) will become the directory name for the instance in each of the cinchy.argocd and cinchy.kubernetes repos
+        "development": {
+          // All pods belonging to an instance are created within the namespace specified below
+          "namespace": "development",
+          "protocol": "https",
+          // The following property sets the host name at which the cinchy instance is exposed, e.g. cinchy-nonprod.<mydomain.com>
+          "host_name": "",
+          // If the instance is being deployed at an application path (e.g. https://<host name>/<application path>) as the base URL, the application path can be specified below, e.g. /development
+          "application_path": "",
+          "use_https_flag": "true",
+          "dbtype": "TSQL",
+          // The connection string for Azure SQL Database requires the password and host name to be updated below. These values will only be known once the terraform script has been applied and the resource are created.
+          "database_connection_string": "User Id=sqladmin;Password=<password>;Server=<db_hostname>;Database=development;Trusted_Connection=False;Connection Timeout=30;Min Pool Size=10;",
+          // The component image tags are specified below to define which versions to deploy
+          "connections_image_tag": "v5.1.0",
+          "event_listener_image_tag": "v5.1.0",
+          "idp_image_tag": "v5.1.0",
+          "maintenance_cli_image_tag": "v5.1.0",
+          "meta_forms_image_tag": "v5.1.0",
+          "web_image_tag": "v5.1.0",
+          "worker_image_tag": "v5.1.0"
+        }
+      }
+    }
+  }
+}
