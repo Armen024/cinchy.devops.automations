@@ -34,11 +34,20 @@
           // Two storage containers are created, one for the Connections component and one for the Platform. The default naming convention is <cluster name>-<component>
           "connections_storage_container_name": "nonprod-connections",
           "platform_storage_container_name": "nonprod-platform",
-          "connections_storage_type": "AzureBlobStorage",
           // The connection string to the Azure Blob Storage account, it can be retrieved by executing the following command after the terraform apply has completed
           // In the below command the <storage_account_name> and <deployment_resource_group> must be replaced with the values for those properties within this file
           // az storage account show-connection-string --name <storage_account_name> --resource-group <deployment_resource_group>
           "azure_blob_storage_conn_str": ""
+        },
+        "connections": {
+          "connections_storage_type": "AzureBlobStorage",
+          // The path within the bucket to use for connections data, this path is contained within a directory specific to the instance, i.e. the actual path will be <instance_name>/<connections_storage_basepath>
+          "connections_storage_basepath": "cinchyconnections"
+        },
+        "web": {
+          "web_storage_type": "AzureBlobStorage",
+          // The path within the bucket to use for web data, this path is contained within a directory specific to the instance, i.e. the actual path will be <instance_name>/<connections_storage_basepath>
+          "web_storage_basepath": "cinchyweb"
         },
         "network": {
           // When planning on leveraging an existing vnet, populate the below settings with the name of the vnet and the subnet to use
@@ -52,22 +61,24 @@
           "new_vnet": {
             "virtual_network_name": "nonprodvnet",
             // The CIDR range should allow sufficient IPs for all running pods (across all instances) and provide sufficient capacity for auto scaling
-            "address_space": "20.10.0.0/21",
+            "address_space": "10.10.0.0/21",
             "subnet_name": "nonprodakssubnet1",
             // The subnet must allow sufficient IPs for all running pods across all nodes across AZs
-            "subnet_prefix": "20.10.0.0/22"
+            "subnet_prefix": "10.10.0.0/22"
           }
         },
         // Cluster definition
         "aks": {
-          "kubernetes_version": "1.22.11",
-          "orchestrator_version": "1.22.11",
+          "kubernetes_version": "1.24.6",
+          "orchestrator_version": "1.24.6",
           // Should not overlap with network.[existing|new_vnet].subnet_prefix, but fall within network.[new_vnet].address_space
           // The network range used by the Kubernetes service
-          "net_profile_service_cidr": "20.10.4.0/22",
+          "net_profile_service_cidr": "10.10.4.0/22",
           // IP address within the Kubernetes service address range that will be used by cluster service discovery (kube-dns)
           // Note that *.*.*.1 is a Kubernetes reserved address
-          "net_profile_dns_service_ip": "20.10.4.2",
+          "net_profile_dns_service_ip": "10.10.4.2",
+          //AKS cluter public or private
+          "private_cluster_enabled": "false",
           // The name of the Private DNS Zone. Must be a valid domain name.
           "private_dns_name": "privatelink.<region-name>.azmk8s.io",
           "nodes": {
@@ -138,6 +149,27 @@
           // Since there is only one ingress gateway and a single SSL cert specified, this option is only available when using a wildcard SSL certificate
           "argocd_host_name": ""
         },
+        "grafana": {
+          // Set Grafana admin account password (cleartext)
+          "grafana_password": "prom-operator"
+        },
+        "opensearch": {
+          // To configure the opensearch admin user password, update the opensearch_admin_user_hashed_password and opensearch_admin_user_password_base64 below.
+          // The value for opensearch_admin_user_hashed_password must be hashed using a tool running on the opensearch container
+          // To create a new password hash for admin and kibanaserver users run the following command on a machine with docker available
+          // docker run -it opensearchproject/opensearch /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p <<newpassword>>
+          // The default value for the password is "password"
+          "opensearch_admin_user_hashed_password": "$2y$12$zJKuw2vxQxVmARm972vwk.3eoI9IamSsgqG8EBdzU3.NS.JYn1Esm",
+          // The same cleartext password used to generate the above hash value must be encoded in base64 and entered below
+          "opensearch_admin_user_password_base64": "cGFzc3dvcmQ=",
+          // Communication between the opensearch dashboard and the opensearch server runs under a kibanaserver user account
+          // Update the opensearch_kibanaserver_user_hashed_password and opensearch_kibanaserver_user_password to change
+          // the default password for this account.
+          // The hash should be generated using the same approach as the opensearch_admin_user_hashed_password property
+          "opensearch_kibanaserver_user_hashed_password": "$2y$12$jrBDSi7ZRgGyciQwacypVummnw1GhdNZKhirGV3mVVg7vKec0WkCu",
+          // The kibanaserver user account password must be provided again in cleartext
+          "opensearch_kibanaserver_user_password": "R?Mu3#_jh8we"
+        },
         "ecr_repo_secrets": {
           "base64_encoded_aws_region": "Y2EtY2VudHJhbC0x",
           // Cinchy platform component images are held in an AWS Elastic Container Registry. A set of IAM credentials can be requested from support@cinchy.com.
@@ -148,6 +180,8 @@
       },
       "image_repo_uris": {
         // The images made available by Cinchy use the below repository url's, these do not need to change unless you are leveraging your own ECR or equivalent alternative
+        // You have the option between Alpine or Debian based image tags for the event-listener, worker, and connections.
+        // Using Debian tags will allow you to connect to a DB2 data source, and that option should be selected if you plan on leveraging a DB2 data sync. 
         "connections_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.webapi",
         "event_listener_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.event-listener",
         "idp_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.idp",
@@ -171,14 +205,19 @@
           "dbtype": "TSQL",
           // The connection string for Azure SQL Database requires the password and host name to be updated below. These values will only be known once the terraform script has been applied and the resource are created.
           "database_connection_string": "User Id=sqladmin;Password=<password>;Server=<db_hostname>;Database=development;Trusted_Connection=False;Connection Timeout=30;Min Pool Size=10;",
+          // The following property sets the max request size in bytes to the Cinchy web application. The default value is 1gb to allow for large file uploads.
+          "web_max_request_body_size" : 1073741824,
+          // The session timeout for the web application, format is <days>.<hours>:<minutes>:<seconds>
+          "cinchy_session_timeout" : "7.00:00:00",
           // The component image tags are specified below to define which versions to deploy
-          "connections_image_tag": "v5.1.0",
-          "event_listener_image_tag": "v5.1.0",
-          "idp_image_tag": "v5.1.0",
-          "maintenance_cli_image_tag": "v5.1.0",
-          "meta_forms_image_tag": "v5.1.0",
-          "web_image_tag": "v5.1.0",
-          "worker_image_tag": "v5.1.0"
+          // The event-listener, worker, and connections image tag pattern for Debian is "5.x.x-debian"
+          "connections_image_tag": "v5.4.0",
+          "event_listener_image_tag": "v5.4.0",
+          "idp_image_tag": "v5.4.0",
+          "maintenance_cli_image_tag": "v5.4.0",
+          "meta_forms_image_tag": "v5.4.0",
+          "web_image_tag": "v5.4.0",
+          "worker_image_tag": "v5.4.0"
         }
       }
     }

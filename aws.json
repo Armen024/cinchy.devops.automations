@@ -25,21 +25,20 @@
           "cinchy_s3_bucket": "<organization>-cinchy-nonprod",
           // During the S3 bucket creation, a tag named "Environment" is added to the resource and populated with the following value
           "cinchy_s3_environment_tag": "cinchy-nonprod",
-          "connections_storage_type": "S3",
-          // IAM user credentials (access key and secret) for access to this bucket. Ensure that the usre has the necessary privileges defined in IAM
-          "connections_s3_access_key": "",
-          "connections_s3_secret_access_key": "",
+          // IAM user credentials (access key and secret) for access to this bucket. Ensure that the user has the necessary privileges defined in IAM
+          "cinchy_s3_access_key": "",
+          "cinchy_s3_secret_access_key": "",
           // Optional - only set this value if you are using a third party S3 compatible service
-          "connections_s3_service_url": "",
+          "cinchy_s3_service_url": "",
+          "connections": {
+            "connections_storage_type": "S3",
+            // The path within the bucket to use for connections data, this path is contained within a directory specific to the instance, i.e. the actual path will be <instance_name>/<connections_storage_basepath>
+            "connections_storage_basepath": "cinchyconnections"
+          },
           "web": {
             "web_storage_type": "S3",
-            // Cinchy requires a new S3 bucket for it's file storage. Select a unique name, the template convention follows <organization>-<cluster name>
-            "cinchy_web_s3_bucket": "",
-            // IAM user credentials (access key and secret) for access to this bucket. Ensure that the usre has the necessary privileges defined in IAM
-            "web_s3_access_key": "",
-            "web_s3_secret_access_key": "",
-            // Optional - only set this value if you are using a third party S3 compatible service
-            "web_s3_service_url": ""
+            // The path within the bucket to use for web data, this path is contained within a directory specific to the instance, i.e. the actual path will be <instance_name>/<connections_storage_basepath>
+            "web_storage_basepath": "cinchyweb"
           }
         },
         "network": {
@@ -98,50 +97,6 @@
           "allowed_cidr_blocks": [ "10.10.0.0/21" ],
           // During the VPC creation, a tag named "Environment" is added to the resource and populated with the following value
           "aurora_environment_tag": "cinchy-nonprod"
-        },
-        "managed_opensearch": {
-          // The Opensearch cluster name. Underscore is not allowed
-          "domain_name": "cinchy-nonprod",
-          //The Opensearch cluster version is defined as below.
-          "opensearch_version": "OpenSearch_1.3",
-          // Specify the type of the Opensearch instance 
-          "opensearch_instance_type": "m6g.large.elasticsearch",
-          // Number of instances in the cluster.
-          "instance_count": 3,
-          //Configuration for Opensearch zone awareness.
-          "zone_awareness_enabled": "true",
-          // Number of availability zones used.
-          "availability_zone_count": 3,
-          // As part of the pre-requisites for AWS, the SSL certificate is imported (or requested) into the AWS Certificate Manager. The ARN of the certificate must be specified below.
-          "custom_endpoint_certificate_arn": "arn:aws:acm:us-east-1:1234567890:certificate/7702sa1c-e16e-4e4b-87d9-288b5ad59dsd",
-          // Opensearch Dashboard is used for log analysis. The following property controls the host name at which Opensearch Dashboard is made available. The default path for Opensearch Dashboard is https://<host name>/_dashboards
-          // The custom endpoint would be https://<host name>
-          "custom_endpoint": "",
-          // Disk size for the nodes is specified in GB.
-          "opensearch_volume_size": "1000",
-          // Set password for internal user and the default username is cinchy
-          "master_user_password": "SometHing$1",
-          // During the Opensearch creation, a tag named "Environment" is added to the resource and populated with the following value
-          "opensearch_environment_tag": "",
-          // Enable SAML using below parameter.
-          "opensearch_saml_enabled": "true",
-          // TO enable SAML need to generate metadata.xml for SSO through your SSO provider. In this example we are going to use Azure Active Directory.
-          // Login to Azure portal and select Azure Active Directory service >> Enterprise applications >> New application >> Create your own application >> Give some name to your application and choose "Integrate any other application you don't find in the gallery (Non-gallery)" option and hit create.
-          //Click on single sign on >>  SAML >> update Basic SAML Configuration as below and domain URL can be changed based on availability and choice 
-          //Identifier (Entity ID)  = https://<host name>
-          //Reply URL (Assertion Consumer Service URL) =   https://<host name>/_dashboards/_opendistro/_security/saml/acs
-          // On the same page you would be able to see "Federation Metadata XML" file which you need to download.
-          // Also add create appropriate User groups and permissions
-          // Add appropriate Attributes & Claims in application to use below saml_role_key. For below group claim user.groups [ApplicationGroup] added.
-          "saml_roles_key": "http://schemas.microsoft.com/ws/2008/06/identity/claims/groups",
-          // Add AAD group to Applcaition and grab the Active Directory Users group ID and add as below to set permissions or Login to Opensearch using master_user_name and assigne appropriate roles to users.
-          "master_backend_role": "f087bf8b-d6e9-48fe-b22a-7772ef811146",
-          // Add valid email address which will act as administrator
-          "master_user_name": "user.@example.com",
-          // Copy "Azure AD Identifier" from  Single Sign-On with SAML section..
-          "idp_entity_id":"https://sts.windows.net/f3d450ce-6b1e-41fb-ac199908/",
-          // Copy the downloaded metadata.xml file to cinchy.terraform\aws\eks_cluster_template and update the file name below.
-          "metadata_content": "metadata.xml"
         }
       },
       "argocd_config": {
@@ -188,6 +143,27 @@
           // Since there is only one ingress gateway and a single SSL cert specified, this option is only available when using a wildcard SSL certificate
           "argocd_host_name": ""
         },
+        "grafana": {
+          // Set Grafana admin account password (cleartext)
+          "grafana_password": "prom-operator"
+        },
+        "opensearch": {
+          // To configure the opensearch admin user password, update the opensearch_admin_user_hashed_password and opensearch_admin_user_password_base64 below.
+          // The value for opensearch_admin_user_hashed_password must be hashed using a tool running on the opensearch container
+          // To create a new password hash for admin and kibanaserver users run the following command on a machine with docker available
+          // docker run -it opensearchproject/opensearch /usr/share/opensearch/plugins/opensearch-security/tools/hash.sh -p <<newpassword>>
+          // The default value for the password is "password"
+          "opensearch_admin_user_hashed_password": "$2y$12$zJKuw2vxQxVmARm972vwk.3eoI9IamSsgqG8EBdzU3.NS.JYn1Esm",
+          // The same cleartext password used to generate the above hash value must be encoded in base64 and entered below
+          "opensearch_admin_user_password_base64": "cGFzc3dvcmQ=",
+          // Communication between the opensearch dashboard and the opensearch server runs under a kibanaserver user account
+          // Update the opensearch_kibanaserver_user_hashed_password and opensearch_kibanaserver_user_password to change
+          // the default password for this account.
+          // The hash should be generated using the same approach as the opensearch_admin_user_hashed_password property
+          "opensearch_kibanaserver_user_hashed_password": "$2y$12$jrBDSi7ZRgGyciQwacypVummnw1GhdNZKhirGV3mVVg7vKec0WkCu",
+          // The kibanaserver user account password must be provided again in cleartext
+          "opensearch_kibanaserver_user_password": "R?Mu3#_jh8we"
+        },
         "ecr_repo_secrets": {
           // This value only needs to be changed if Cinchy's ECR is not going to be used to pull images at runtime. The value is a Base64 encoded version of the AWS region in which the ECR is created.
           "base64_encoded_aws_region": "Y2EtY2VudHJhbC0x",
@@ -201,6 +177,8 @@
       },
       "image_repo_uris": {
         // The images made available by Cinchy use the below repository url's, these do not need to change unless you are leveraging your own ECR or equivalent alternative
+        // You have the option between Alpine or Debian based image tags for the event-listener, worker, and connections.
+        // Using Debian tags will allow you to connect to a DB2 data source, and that option should be selected if you plan on leveraging a DB2 data sync. 
         "connections_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.connections.webapi",
         "event_listener_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.event-listener",
         "idp_image_repo_uri": "658484148438.dkr.ecr.ca-central-1.amazonaws.com/cinchy.idp",
@@ -227,14 +205,19 @@
           // terraform output -raw aurora_rds_password
           // terraform output -raw aurora_cluster_endpoint
           "database_connection_string": "User ID=cinchy;Password=<password>;Host=<db_hostname>;Port=5432;Database=development;Timeout=300;Keepalive=300;",
+          // The following property sets the max request size in bytes to the Cinchy web application. The default value is 1gb to allow for large file uploads.
+          "web_max_request_body_size" : 1073741824,
+          // The session timeout for the web application, format is <days>.<hours>:<minutes>:<seconds>
+          "cinchy_session_timeout" : "7.00:00:00",
           // The component image tags are specified below to define which versions to deploy
-          "connections_image_tag": "v5.1.0",
-          "event_listener_image_tag": "v5.1.0",
-          "idp_image_tag": "v5.1.0",
-          "maintenance_cli_image_tag": "v5.1.0",
-          "meta_forms_image_tag": "v5.1.0",
-          "web_image_tag": "v5.1.0",
-          "worker_image_tag": "v5.1.0",
+          // The event-listener, worker, and connections image tag pattern for Debian is "5.x.x-debian"
+          "connections_image_tag": "v5.4.0",
+          "event_listener_image_tag": "v5.4.0",
+          "idp_image_tag": "v5.4.0",
+          "maintenance_cli_image_tag": "v5.4.0",
+          "meta_forms_image_tag": "v5.4.0",
+          "web_image_tag": "v5.4.0",
+          "worker_image_tag": "v5.4.0",
           // If using the AWS Secrets Manager, the ARNs for the secrets that have been created
           "aws_secrets_manager_arn_list": [
             "arn:aws:secretsmanager:ca-central-1:658484148438:secret:connections-secret-appsettings-development",
